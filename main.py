@@ -15,12 +15,15 @@ REGIONS = 'assets/region.txt'
 DOWNLOC = 'samsung-firmware'
 
 def getbinaryfile(client, fw, region, model):
-    req = request.binaryinform(fw, region, model, client.nonce)
-    resp = client.makereq("NF_DownloadBinaryInform.do", req)
-    root = ET.fromstring(resp)
-    filename = root.find("./FUSBody/Put/BINARY_NAME/Data").text
-    path = root.find("./FUSBody/Put/MODEL_PATH/Data").text
-    return path, filename
+    try:
+        req = request.binaryinform(fw, region, model, client.nonce)
+        resp = client.makereq("NF_DownloadBinaryInform.do", req)
+        root = ET.fromstring(resp)
+        filename = root.find("./FUSBody/Put/BINARY_NAME/Data").text
+        path = root.find("./FUSBody/Put/MODEL_PATH/Data").text
+        return path, filename
+    except:
+        return None, None
 
 def initdownload(client, filename):
     req = request.binaryinit(filename, client.nonce)
