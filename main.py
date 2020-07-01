@@ -58,9 +58,9 @@ class ProcessThread(Thread):
             return
 
         if localpath.endswith('enc2'):
-            decrypt2(version, model, region, localpath, localpath.rstrip('.enc2'))
+            decrypt2(version, model, region, localpath)
         elif localpath.endswith('enc4'):
-            decrypt4(version, model, region, localpath, localpath.rstrip('.enc4'))                
+            decrypt4(version, model, region, localpath)
 
 def getbinaryfile(client, fw, region, model):
     try:
@@ -97,21 +97,25 @@ def download(version, model, region, outdir):
             f.flush()
     return output
 
-def decrypt4(version, model, region, infile, outfile):
+def decrypt4(version, model, region, infile):
     key = crypt.getv4key(version, model, region)
     print("Decrypting with key {}...".format(key.hex()))
     length = os.stat(infile).st_size
+    outfile = infile.rstrip('.enc4')
     with open(infile, "rb") as inf:
         with open(outfile, "wb") as outf:
             crypt.decrypt_progress(inf, outf, key, length)
+    return outfile
 
-def decrypt2(version, model, region, infile, outfile):
+def decrypt2(version, model, region, infile):
     key = crypt.getv2key(version, model, region)
     print("Decrypting with key {}...".format(key.hex()))
     length = os.stat(infile).st_size
+    outfile = infile.rstrip('.enc2')
     with open(infile, "rb") as inf:
         with open(outfile, "wb") as outf:
             crypt.decrypt_progress(inf, outf, key, length)
+    return outfile
 
 def main():
 
