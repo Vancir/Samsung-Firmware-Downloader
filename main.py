@@ -2,17 +2,65 @@
 # Copyright (C) 2020 Vancir
 
 import os
+from time import sleep
+from queue import Queue
+from threading import Thread
 import xml.etree.ElementTree as ET
 from clint.textui import progress
 
 import request
 import crypt
 import fusclient
-import versionfetch
+from versionfetch import getlatestver
 
+THREADNUM = 4
 MODELS = 'assets/model.txt'
 REGIONS = 'assets/region.txt'
 DOWNLOC = 'samsung-firmware'
+
+class ProcessThread(Thread):
+
+    def __init__(self, task_queue, name='ProcessThread'):
+        super().__init__()
+        self._name = name
+        self._task_queue = task_queue
+
+    def run(self):
+        while True:
+            print("{}: remaining {} tasks.".format(
+                self._name, self._task_queue.qsize()
+            ))
+
+            process_item = self._task_queue.get()
+            try:
+                self.pipeline(process_item)
+            except Exception as e:
+                print(e)
+            finally:
+                self._task_queue.task_done()
+                sleep(1)
+    
+    def pipeline(self, item):
+        model = item['Model']
+        region = item['Region']
+        version = item['Version']
+
+        outdir = os.path.join(DOWNLOC, model, region, version)
+        if os.path.exists(outdir):
+            print("Already processed, {}/{}/{}".format(model, region, version))
+            return
+        else:
+            os.makedirs(outdir, exist_ok=True)
+
+        localpath = download(version, model, region, outdir)
+        if not localpath: 
+            os.rmdir(outdir)
+            return
+
+        if localpath.endswith('enc2'):
+            decrypt2(version, model, region, localpath, localpath.rstrip('.enc2'))
+        elif localpath.endswith('enc4'):
+            decrypt4(version, model, region, localpath, localpath.rstrip('.enc4'))                
 
 def getbinaryfile(client, fw, region, model):
     try:
@@ -29,20 +77,19 @@ def initdownload(client, filename):
     req = request.binaryinit(filename, client.nonce)
     resp = client.makereq("NF_DownloadBinaryInitForMass.do", req)
 
-def checkupdate(model, region):
-    fw = versionfetch.getlatestver(region, model)
-    return fw
-
 def download(version, model, region, outdir):
     client = fusclient.FUSClient()
     path, filename = getbinaryfile(client, version, region, model)
     if not all([path, filename]): return None
 
+    output = os.path.join(outdir, filename)
+    if os.path.exists(output): return output
+
     print("Downloading file {} ...".format(path+filename))
     initdownload(client, filename)
     r = client.downloadfile(path+filename)
     length = int(r.headers["Content-Length"])
-    output = os.path.join(outdir, filename)
+
     with open(output, "wb") as f:
         for chunk in progress.bar(r.iter_content(chunk_size=0x10000), expected_size=(length/0x10000)+1):
             if not chunk: continue
@@ -67,31 +114,38 @@ def decrypt2(version, model, region, infile, outfile):
             crypt.decrypt_progress(inf, outf, key, length)
 
 def main():
+
     with open(MODELS, 'r') as fp:
         models = [line.strip() for line in fp.readlines()]
     
     with open(REGIONS, 'r') as fp:
         regions = [line.strip()[line.rfind('(')+1:-1] for line in fp.readlines()]
         # regions = ('CHM', 'CTC', 'CHC', 'BTU')
-        
+    
+    processQueue = Queue()
     for model in models:
         for region in regions:
-            version = checkupdate(model, region)
-            if not version: continue
-            print(model, region, version)
+            versions = getlatestver(region, model)            
+            for version in versions:
+                processQueue.put({
+                    'Model': model,
+                    'Region': region,
+                    'Version': version
+                })
+                print(model, region, version)
 
-            outdir = os.path.join(DOWNLOC, model, region)
-            os.system('mkdir -p {}'.format(outdir))
+    print("Total tasks number: {}".format(processQueue.qsize()))
 
-            localpath = download(version, model, region, outdir)
-            if not localpath: 
-                os.system("rmdir {}".format(outdir))
-                continue
+    processThreads = []
+    for i in range(THREADNUM):
+        procthread = ProcessThread(
+            task_queue = processQueue,
+            name = "ProcessThread{:02d}".format(i+1)
+        )
+        processThreads.append(procthread)
+        procthread.start()
 
-            if localpath.endswith('enc2'):
-                decrypt2(version, model, region, localpath, localpath.rstrip('.enc2'))
-            elif localpath.endswith('enc4'):
-                decrypt4(version, model, region, localpath, localpath.rstrip('.enc4'))                
+    processQueue.join()
 
 if __name__ == "__main__":
     main()

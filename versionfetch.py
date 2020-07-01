@@ -6,13 +6,30 @@
 import xml.etree.ElementTree as ET
 import requests
 
-def getlatestver(region, model):
-    r = requests.get("http://fota-cloud-dn.ospserver.net/firmware/" + region + "/" + model + "/version.xml")
-    if r.status_code != 200: return ''
-    
-    root = ET.fromstring(r.text)
-    vercode = root.find("./firmware/version/latest").text
-    if not vercode: return ''
+def getver(vercode):
+    vc = vercode.split("/")
+    version = vercode if len(vc) == 4 else vercode + "/" + vc[0]
+    return version.strip()
 
-    vc = vercode.split("/")    
-    return vercode if len(vc) == 4 else vercode + "/" + vc[0]
+def getlatestver(region, model):
+    avaivers = []
+    
+    try:
+        r = requests.get("http://fota-cloud-dn.ospserver.net/firmware/{}/{}/version.xml".format(region, model))
+        if r.status_code != 200: return avaivers
+    except:
+        return avaivers
+
+    root = ET.fromstring(r.content)
+    vercode = root.find("./firmware/version/latest")
+    if vercode.text:
+        latestver = getver(vercode.text)
+        avaivers.append(latestver)
+
+    upgrades =  root.findall("./firmware/version/upgrade/value")
+    for ug in upgrades:
+        if not ug.text: continue
+        upgradever = getver(ug.text)
+        avaivers.append(upgradever)
+
+    return avaivers
